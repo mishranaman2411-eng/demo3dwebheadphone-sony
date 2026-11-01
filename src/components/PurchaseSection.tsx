@@ -60,17 +60,17 @@ export const PurchaseSection: React.FC = () => {
             </div>
 
             {/* In the Box Preview */}
-            <div className="grid grid-cols-3 gap-4 pt-2">
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] text-center space-y-1">
-                <p className="text-[11px] font-mono uppercase text-white/40">Included</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4 pt-2">
+              <div className="p-3 sm:p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] text-center space-y-1">
+                <p className="text-[10px] sm:text-[11px] font-mono uppercase text-white/40">Included</p>
                 <p className="text-xs font-medium text-white/90">Sony WH-CH520</p>
               </div>
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] text-center space-y-1">
-                <p className="text-[11px] font-mono uppercase text-white/40">Included</p>
+              <div className="p-3 sm:p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] text-center space-y-1">
+                <p className="text-[10px] sm:text-[11px] font-mono uppercase text-white/40">Included</p>
                 <p className="text-xs font-medium text-white/90">USB-C Cable</p>
               </div>
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] text-center space-y-1">
-                <p className="text-[11px] font-mono uppercase text-white/40">Included</p>
+              <div className="p-3 sm:p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] text-center space-y-1">
+                <p className="text-[10px] sm:text-[11px] font-mono uppercase text-white/40">Included</p>
                 <p className="text-xs font-medium text-white/90">Reference Guide</p>
               </div>
             </div>

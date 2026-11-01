@@ -72,7 +72,7 @@ export const SpecsSection: React.FC = () => {
         </div>
 
         {/* In the Box Section */}
-        <div className="mt-16 p-8 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+        <div className="mt-12 sm:mt-16 p-5 sm:p-8 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6">
           <div>
             <h4 className="text-sm font-semibold tracking-wider uppercase text-white">
               What's in the Box

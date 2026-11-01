@@ -2,6 +2,7 @@ export interface Chapter {
   id: number;
   slug: string;
   videoSrc: string;
+  posterSrc: string;
   tagline: string;
   heading: string;
   description: string;
