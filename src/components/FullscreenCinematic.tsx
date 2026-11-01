@@ -222,7 +222,7 @@ export const FullscreenCinematic: React.FC = () => {
     // Prune stale queue items that are too far from active viewport (> 35 frames away)
     const currentTarget = currentTargetIndexRef.current;
     queueRef.current = queueRef.current.filter((item) => {
-      return item.index === 0 || Math.abs(item.index - currentTarget) <= 35;
+      return item.index === 0 || Math.abs(item.index - currentTarget) <= 60;
     });
 
     // Sort descending by priority
@@ -303,17 +303,29 @@ export const FullscreenCinematic: React.FC = () => {
             }
           }
 
-          // Monotonic Reactive Display Check:
-          // When a requested frame finishes loading, only render it if it matches the active target
-          // or immediate neighbor (<= 1). Never draw out-of-order distant frames to eliminate visual "glitter"/jitter.
+          // Fluid Monotonic Display Update:
+          // Smoothly advance animation while scrolling, strictly in active direction.
+          // Never draw backwards out-of-order frames (which causes glitter/jitter),
+          // but DO draw newer forward frames to completely eliminate scroll freeze and lag!
           const currentTarget = currentTargetIndexRef.current;
-          if (Math.abs(currentTarget - idx) <= 1 && lastDrawnIndexRef.current !== idx) {
+          const lastDrawn = lastDrawnIndexRef.current;
+          const dir = scrollDirectionRef.current;
+
+          let shouldDraw = false;
+          if (idx === currentTarget) {
+            shouldDraw = true;
+          } else if (dir >= 0 && idx > lastDrawn && idx <= currentTarget) {
+            shouldDraw = true;
+          } else if (dir < 0 && idx < lastDrawn && idx >= currentTarget) {
+            shouldDraw = true;
+          }
+
+          if (shouldDraw && lastDrawnIndexRef.current !== idx) {
             drawImageCover(img);
             lastDrawnIndexRef.current = idx;
             lastDrawnUrlRef.current = entry.url;
             (window as any).__lastDrawnUrl = entry.url;
           }
-
           resolve(img);
         };
 
