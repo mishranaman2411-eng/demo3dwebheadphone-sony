@@ -9,3 +9,4 @@ dist-ssr
 tasks/previews/
 videos_clean/
 public/frames_clean/
+public/frames_raw/

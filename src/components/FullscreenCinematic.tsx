@@ -37,9 +37,10 @@ for (const clip of CLIPS_CONFIG) {
 }
 export const TOTAL_FRAMES = ALL_FRAMES.length; // 1,778
 
-const CACHE_LIMIT = 240;
-const PRELOAD_FORWARD = 35;
-const PRELOAD_BACKWARD = 15;
+const CACHE_LIMIT = 200; // Bounded LRU cache (~7.2MB max memory)
+const MAX_CONCURRENT_REQUESTS = 6; // Standard HTTP/2 browser connection pool limit
+const LOOKAHEAD_PRIMARY = 16; // Lookahead buffer in active scroll direction
+const LOOKAHEAD_SECONDARY = 6; // Safety retention buffer in reverse direction
 
 const INTRO_STOP_INDEX = 125; // Stopped exactly at SILENCE, ENGINEERED presentation (Video 2 frame 21)
 const INTRO_DURATION_MS = 3800; // ~3.8s cinematic opening autoplay
@@ -118,6 +119,11 @@ function calculateOpacity(
   return 1;
 }
 
+interface QueueItem {
+  index: number;
+  priority: number;
+}
+
 export const FullscreenCinematic: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -129,20 +135,26 @@ export const FullscreenCinematic: React.FC = () => {
   const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
   const [isOrdered, setIsOrdered] = useState(false);
 
-  // Performance cache and references (zero React re-renders during active scrolling)
-  const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  // High-performance image cache & request queue (zero React re-renders during active scrolling)
+  const imageCacheRef = useRef<Map<number, HTMLImageElement>>(new Map());
   const initialFrameImgRef = useRef<HTMLImageElement | null>(null);
-  const inFlightPromisesRef = useRef<Map<string, Promise<HTMLImageElement | null>>>(new Map());
+  const inFlightMapRef = useRef<Map<number, Promise<HTMLImageElement | null>>>(new Map());
+  const queueRef = useRef<QueueItem[]>([]);
+  const activeRequestsCountRef = useRef<number>(0);
+
+  const lastDrawnIndexRef = useRef<number>(-1);
   const lastDrawnUrlRef = useRef<string>('');
   const lastDrawnImageRef = useRef<HTMLImageElement | null>(null);
   const currentTargetIndexRef = useRef<number>(0);
+  const scrollDirectionRef = useRef<number>(1); // 1 = forward, -1 = reverse
+  const lastScrollYRef = useRef<number>(0);
   const rafIdRef = useRef<number>(0);
 
   // Two-state timeline: Intro autoplay -> Freeze & wait for scroll -> Scroll controlled
   const isAutoplayingRef = useRef<boolean>(true);
   const autoplayRafIdRef = useRef<number>(0);
 
-  // Draw image to canvas using full "cover" fitting with high DPI
+  // Draw image to canvas using full "cover" fitting with clamped DPI
   const drawImageCover = useCallback((img: HTMLImageElement) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -173,15 +185,17 @@ export const FullscreenCinematic: React.FC = () => {
       dy = 0;
     }
 
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'medium';
     ctx.drawImage(img, dx, dy, dw, dh);
     lastDrawnImageRef.current = img;
   }, []);
 
-  // Sizing canvas to viewport device pixels
+  // Sizing canvas to viewport device pixels with safe DPI clamping (1.75 max to avoid 4K GPU memory bloat)
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
     const targetW = Math.round(window.innerWidth * dpr);
     const targetH = Math.round(window.innerHeight * dpr);
 
@@ -194,60 +208,212 @@ export const FullscreenCinematic: React.FC = () => {
     }
   }, [drawImageCover]);
 
-  // Load a single frame into memory
-  const loadFrame = useCallback((url: string): Promise<HTMLImageElement | null> => {
-    const cache = imageCacheRef.current;
-    if (cache.has(url)) {
-      const img = cache.get(url)!;
-      // Refresh LRU
-      cache.delete(url);
-      cache.set(url, img);
-      return Promise.resolve(img);
-    }
+  // Concurrency-limited priority queue pump
+  const pumpQueue = useCallback(() => {
+    if (activeRequestsCountRef.current >= MAX_CONCURRENT_REQUESTS) return;
+    if (queueRef.current.length === 0) return;
 
-    if (inFlightPromisesRef.current.has(url)) {
-      return inFlightPromisesRef.current.get(url)!;
-    }
-
-    const promise = new Promise<HTMLImageElement | null>((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        inFlightPromisesRef.current.delete(url);
-        cache.set(url, img);
-        // Evict oldest entries, but preserve initial frame 1
-        while (cache.size > CACHE_LIMIT) {
-          const firstKey = cache.keys().next().value;
-          if (firstKey) {
-            cache.delete(firstKey);
-            if (firstKey === ALL_FRAMES[0].url && initialFrameImgRef.current) {
-              cache.set(firstKey, initialFrameImgRef.current);
-            }
-          }
-        }
-        resolve(img);
-      };
-      img.onerror = () => {
-        inFlightPromisesRef.current.delete(url);
-        resolve(null);
-      };
-      img.src = url;
+    // Prune stale queue items that are too far from active viewport (> 35 frames away)
+    const currentTarget = currentTargetIndexRef.current;
+    queueRef.current = queueRef.current.filter((item) => {
+      return item.index === 0 || Math.abs(item.index - currentTarget) <= 35;
     });
 
-    inFlightPromisesRef.current.set(url, promise);
-    return promise;
-  }, []);
+    // Sort descending by priority
+    queueRef.current.sort((a, b) => b.priority - a.priority);
 
-  // Render frame at target index
+    while (
+      activeRequestsCountRef.current < MAX_CONCURRENT_REQUESTS &&
+      queueRef.current.length > 0
+    ) {
+      const nextTask = queueRef.current.shift();
+      if (!nextTask) break;
+
+      const idx = nextTask.index;
+      if (imageCacheRef.current.has(idx) || inFlightMapRef.current.has(idx)) {
+        continue;
+      }
+
+      activeRequestsCountRef.current++;
+      // Asynchronously fetch and decode off the main thread
+      fetchAndDecodeFrame(idx).finally(() => {
+        activeRequestsCountRef.current--;
+        pumpQueue();
+      });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Off-thread decode and LRU cache insertion
+  const fetchAndDecodeFrame = useCallback(
+    (idx: number): Promise<HTMLImageElement | null> => {
+      const cache = imageCacheRef.current;
+      if (cache.has(idx)) {
+        const cached = cache.get(idx)!;
+        // Refresh LRU position
+        cache.delete(idx);
+        cache.set(idx, cached);
+        return Promise.resolve(cached);
+      }
+
+      if (inFlightMapRef.current.has(idx)) {
+        return inFlightMapRef.current.get(idx)!;
+      }
+
+      const entry = ALL_FRAMES[idx];
+      if (!entry) return Promise.resolve(null);
+
+      const promise = new Promise<HTMLImageElement | null>((resolve) => {
+        const img = new Image();
+        img.decoding = 'async';
+
+        const handleSuccess = () => {
+          inFlightMapRef.current.delete(idx);
+
+          // Update LRU cache
+          cache.delete(idx);
+          cache.set(idx, img);
+
+          // Enforce capacity bounds while permanently pinning frame 0
+          while (cache.size > CACHE_LIMIT) {
+            const firstKey = cache.keys().next().value;
+            if (firstKey !== undefined) {
+              if (firstKey === 0) {
+                // Re-pin frame 0
+                const pinned = cache.get(0)!;
+                cache.delete(0);
+                cache.set(0, pinned);
+                // Evict next entry
+                const secondKey = cache.keys().next().value;
+                if (secondKey !== undefined && secondKey !== 0) {
+                  cache.delete(secondKey);
+                } else {
+                  break;
+                }
+              } else {
+                cache.delete(firstKey);
+              }
+            } else {
+              break;
+            }
+          }
+
+          // Reactive Display Check:
+          // If this frame just finished loading and is CLOSER to the current target than what's currently drawn,
+          // draw it immediately to eliminate scroll stutter over remote connections
+          const currentTarget = currentTargetIndexRef.current;
+          const lastDrawn = lastDrawnIndexRef.current;
+          const currentDist = lastDrawn >= 0 ? Math.abs(currentTarget - lastDrawn) : 9999;
+          const newDist = Math.abs(currentTarget - idx);
+
+          if (newDist < currentDist && newDist <= 12) {
+            drawImageCover(img);
+            lastDrawnIndexRef.current = idx;
+            lastDrawnUrlRef.current = entry.url;
+            (window as any).__lastDrawnUrl = entry.url;
+          }
+
+          resolve(img);
+        };
+
+        const handleError = () => {
+          inFlightMapRef.current.delete(idx);
+          resolve(null);
+        };
+
+        img.onload = () => {
+          // Offload image decompression off the main thread before resolving
+          if (typeof img.decode === 'function') {
+            img.decode().then(handleSuccess).catch(handleSuccess);
+          } else {
+            handleSuccess();
+          }
+        };
+        img.onerror = handleError;
+        img.src = entry.url;
+      });
+
+      inFlightMapRef.current.set(idx, promise);
+      return promise;
+    },
+    [drawImageCover]
+  );
+
+  // Enqueue a frame request with given priority
+  const requestFrame = useCallback(
+    (index: number, priority: number) => {
+      if (index < 0 || index >= TOTAL_FRAMES) return;
+      if (imageCacheRef.current.has(index)) return;
+      if (inFlightMapRef.current.has(index)) return;
+
+      const existing = queueRef.current.find((t) => t.index === index);
+      if (existing) {
+        if (priority > existing.priority) {
+          existing.priority = priority;
+        }
+        return;
+      }
+
+      queueRef.current.push({ index, priority });
+      pumpQueue();
+    },
+    [pumpQueue]
+  );
+
+  // Schedule directional preloading around the active position
+  const schedulePreloads = useCallback(
+    (centerIndex: number, direction: number) => {
+      // Current target frame has absolute top priority
+      requestFrame(centerIndex, 10000);
+
+      if (direction >= 0) {
+        // Scrolling forward: priority to forward lookahead window
+        for (let i = 1; i <= LOOKAHEAD_PRIMARY; i++) {
+          const idx = centerIndex + i;
+          if (idx < TOTAL_FRAMES) {
+            requestFrame(idx, 1000 - i * 30);
+          }
+        }
+        // Backward retention window
+        for (let i = 1; i <= LOOKAHEAD_SECONDARY; i++) {
+          const idx = centerIndex - i;
+          if (idx >= 0) {
+            requestFrame(idx, 500 - i * 30);
+          }
+        }
+      } else {
+        // Scrolling backward: priority to reverse lookahead window
+        for (let i = 1; i <= LOOKAHEAD_PRIMARY; i++) {
+          const idx = centerIndex - i;
+          if (idx >= 0) {
+            requestFrame(idx, 1000 - i * 30);
+          }
+        }
+        // Forward retention window
+        for (let i = 1; i <= LOOKAHEAD_SECONDARY; i++) {
+          const idx = centerIndex + i;
+          if (idx < TOTAL_FRAMES) {
+            requestFrame(idx, 500 - i * 30);
+          }
+        }
+      }
+    },
+    [requestFrame]
+  );
+
+  // Render frame at target index with zero-flicker nearest-neighbor fallback
   const renderFrameAtIndex = useCallback(
     (index: number) => {
       const clamped = Math.max(0, Math.min(TOTAL_FRAMES - 1, index));
+      currentTargetIndexRef.current = clamped;
+
       const entry = ALL_FRAMES[clamped];
       if (!entry) return;
 
       // Special instantaneous case: Frame 1 is permanently pinned in memory
       if (clamped === 0 && initialFrameImgRef.current) {
-        if (lastDrawnUrlRef.current !== entry.url) {
+        if (lastDrawnIndexRef.current !== 0) {
           drawImageCover(initialFrameImgRef.current);
+          lastDrawnIndexRef.current = 0;
           lastDrawnUrlRef.current = entry.url;
           (window as any).__lastDrawnUrl = entry.url;
         }
@@ -255,50 +421,52 @@ export const FullscreenCinematic: React.FC = () => {
       }
 
       const cache = imageCacheRef.current;
-      const cached = cache.get(entry.url);
+      const exactImg = cache.get(clamped);
 
-      if (cached && cached.complete && cached.naturalWidth > 0) {
-        if (lastDrawnUrlRef.current !== entry.url) {
-          drawImageCover(cached);
+      if (exactImg) {
+        if (lastDrawnIndexRef.current !== clamped) {
+          drawImageCover(exactImg);
+          lastDrawnIndexRef.current = clamped;
           lastDrawnUrlRef.current = entry.url;
           (window as any).__lastDrawnUrl = entry.url;
         }
       } else {
-        // High priority: load target frame immediately and draw as soon as available
-        loadFrame(entry.url).then((img) => {
-          if (img && currentTargetIndexRef.current === clamped) {
-            drawImageCover(img);
-            lastDrawnUrlRef.current = entry.url;
-            (window as any).__lastDrawnUrl = entry.url;
+        // Nearest-neighbor fallback: check nearest cached frames within ±15 to avoid blank screens
+        let fallbackImg: HTMLImageElement | null = null;
+        let fallbackIdx = -1;
+        for (let offset = 1; offset <= 15; offset++) {
+          const ahead = clamped + offset;
+          const behind = clamped - offset;
+          if (ahead < TOTAL_FRAMES && cache.has(ahead)) {
+            fallbackImg = cache.get(ahead)!;
+            fallbackIdx = ahead;
+            break;
           }
-        });
+          if (behind >= 0 && cache.has(behind)) {
+            fallbackImg = cache.get(behind)!;
+            fallbackIdx = behind;
+            break;
+          }
+        }
+
+        if (fallbackImg && fallbackIdx !== lastDrawnIndexRef.current) {
+          drawImageCover(fallbackImg);
+          lastDrawnIndexRef.current = fallbackIdx;
+          lastDrawnUrlRef.current = ALL_FRAMES[fallbackIdx].url;
+          (window as any).__lastDrawnUrl = ALL_FRAMES[fallbackIdx].url;
+        }
+
+        // Enqueue target frame with urgent priority
+        requestFrame(clamped, 10000);
       }
 
-      // Defer peripheral preloads so they never compete with the primary visible frame
-      const idleCallback =
-        typeof window !== 'undefined' && 'requestIdleCallback' in window
-          ? (window as any).requestIdleCallback
-          : (cb: () => void) => setTimeout(cb, 32);
-
-      idleCallback(() => {
-        for (let i = 1; i <= PRELOAD_FORWARD; i++) {
-          const nextIdx = clamped + i;
-          if (nextIdx < TOTAL_FRAMES) {
-            loadFrame(ALL_FRAMES[nextIdx].url);
-          }
-        }
-        for (let i = 1; i <= PRELOAD_BACKWARD; i++) {
-          const prevIdx = clamped - i;
-          if (prevIdx >= 0) {
-            loadFrame(ALL_FRAMES[prevIdx].url);
-          }
-        }
-      });
+      // Preload window in active direction
+      schedulePreloads(clamped, scrollDirectionRef.current);
     },
-    [drawImageCover, loadFrame]
+    [drawImageCover, requestFrame, schedulePreloads]
   );
 
-  // Update headings, overlays, and telemetry based on normalized progress
+  // Update headings, overlays, and telemetry directly without React re-renders
   const updateTimelineUI = useCallback((progress: number, targetIdx: number) => {
     // 1. Headings opacity and subtle vertical parallax in center
     for (let i = 0; i < HEADINGS_CONFIG.length; i++) {
@@ -310,7 +478,6 @@ export const FullscreenCinematic: React.FC = () => {
       headingEl.style.opacity = String(opacity);
       if (opacity > 0) {
         headingEl.style.display = 'flex';
-        // Subtle upward parallax (15px)
         const mid = (start + end) / 2;
         const offset = (progress - mid) * 30;
         headingEl.style.transform = `translateY(${offset.toFixed(1)}px)`;
@@ -358,8 +525,9 @@ export const FullscreenCinematic: React.FC = () => {
     isAutoplayingRef.current = true;
     (window as any).__introAutoplaying = true;
     (window as any).__introFrozen = false;
+    scrollDirectionRef.current = 1;
 
-    // Draw Frame 1 (spotless pure white) immediately
+    // Draw Frame 1 (spotless pure white with Sony logo) immediately
     renderFrameAtIndex(0);
     updateTimelineUI(0, 0);
 
@@ -404,6 +572,12 @@ export const FullscreenCinematic: React.FC = () => {
     }
 
     const scrollY = window.scrollY;
+    const delta = scrollY - lastScrollYRef.current;
+    lastScrollYRef.current = scrollY;
+    if (delta !== 0) {
+      scrollDirectionRef.current = delta > 0 ? 1 : -1;
+    }
+
     const maxScroll = (containerRef.current?.scrollHeight || 1) - window.innerHeight;
     const scrollRatio = Math.min(1, Math.max(0, scrollY / (maxScroll || 1)));
 
@@ -439,28 +613,32 @@ export const FullscreenCinematic: React.FC = () => {
     }
     window.scrollTo(0, 0);
 
-    // 2. High-priority preloading of intro frames (0 through 140)
+    // 2. Load Frame 0 (pure white with Sony logo) immediately and pin in memory
     const firstUrl = ALL_FRAMES[0].url;
-    loadFrame(firstUrl).then((img) => {
+    (window as any).__lastDrawnUrl = firstUrl;
+    fetchAndDecodeFrame(0).then((img) => {
       if (img) {
         initialFrameImgRef.current = img;
         resizeCanvas();
         drawImageCover(img);
+        lastDrawnIndexRef.current = 0;
         lastDrawnUrlRef.current = firstUrl;
+        (window as any).__lastDrawnUrl = firstUrl;
       }
     });
 
-    for (let i = 1; i <= Math.min(140, TOTAL_FRAMES - 1); i++) {
-      loadFrame(ALL_FRAMES[i].url);
+    // 3. Preload initial small intro window (only 12 frames ahead, never flooding the network!)
+    for (let i = 1; i <= 12; i++) {
+      requestFrame(i, 1000 - i * 30);
     }
 
-    // 3. Register scroll listener
+    // 4. Register scroll listener with passive flag for silky 60fps scrolling
     window.addEventListener('scroll', handleScroll, { passive: true });
 
-    // 4. Start intro autoplay after a brief mount delay (80ms)
+    // 5. Start intro autoplay after a brief mount delay (60ms)
     const timer = setTimeout(() => {
       startIntroAutoplay();
-    }, 80);
+    }, 60);
 
     return () => {
       clearTimeout(timer);
@@ -468,7 +646,7 @@ export const FullscreenCinematic: React.FC = () => {
       cancelAnimationFrame(rafIdRef.current);
       window.removeEventListener('scroll', handleScroll);
     };
-  }, [cancelAutoplay, drawImageCover, handleScroll, loadFrame, resizeCanvas, startIntroAutoplay]);
+  }, [cancelAutoplay, drawImageCover, fetchAndDecodeFrame, handleScroll, requestFrame, resizeCanvas, startIntroAutoplay]);
 
   const handleOrder = () => {
     setIsOrdered(true);
