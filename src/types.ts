@@ -1,6 +1,9 @@
 export interface Chapter {
   id: number;
   slug: string;
+  videoIndex: number;
+  frameCount: number;
+  frameDir: string;
   videoSrc: string;
   posterSrc: string;
   tagline: string;

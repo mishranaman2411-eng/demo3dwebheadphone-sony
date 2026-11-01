@@ -4,3 +4,8 @@ dist-ssr
 *.local
 .vscode
 .idea
+
+# Test previews and duplicate clean frame scratchpads
+tasks/previews/
+videos_clean/
+public/frames_clean/
