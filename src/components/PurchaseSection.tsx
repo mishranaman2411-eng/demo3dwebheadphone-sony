@@ -32,7 +32,7 @@ export const PurchaseSection: React.FC = () => {
             <div className="relative w-full aspect-[4/3] rounded-3xl bg-[#141416] border border-white/[0.06] overflow-hidden flex flex-col items-center justify-center p-8 group">
               {/* Product preview image / render */}
               <img
-                src="/previews/10_start.jpg"
+                src="/frames/video-10/frame_000001.webp"
                 alt={`Sony WH-CH520 in ${selectedColor.name}`}
                 className="w-full h-full object-contain filter drop-shadow-[0_20px_40px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover:scale-105"
               />

@@ -21,11 +21,13 @@ export interface FrameItem {
   globalIndex: number;
 }
 
-// Generate the 1,778 flat sequential frame entries in exact chronological order using cleaned footage
+// Generate the 893 flat sequential frame entries in exact chronological order (STEP = 2 for instant web delivery)
 export const ALL_FRAMES: FrameItem[] = [];
 let globalCounter = 0;
+const STEP = 2;
+
 for (const clip of CLIPS_CONFIG) {
-  for (let f = 1; f <= clip.count; f++) {
+  for (let f = 1; f <= clip.count; f += STEP) {
     const pad = String(f).padStart(6, '0');
     ALL_FRAMES.push({
       url: `/frames/video-${clip.video}/frame_${pad}.webp`,
@@ -35,14 +37,14 @@ for (const clip of CLIPS_CONFIG) {
     });
   }
 }
-export const TOTAL_FRAMES = ALL_FRAMES.length; // 1,778
+export const TOTAL_FRAMES = ALL_FRAMES.length; // 893
 
-const CACHE_LIMIT = 600; // Expanded LRU cache to retain frames across sections without thrashing
-const MAX_CONCURRENT_REQUESTS = 10; // HTTP/2 & CDN connection multiplexing limit
-const LOOKAHEAD_PRIMARY = 30; // Lookahead buffer in active scroll direction
-const LOOKAHEAD_SECONDARY = 10; // Retention buffer in reverse direction
+const CACHE_LIMIT = 893; // Full-timeline cache retention (~31MB total - zero eviction or re-downloading)
+const MAX_CONCURRENT_REQUESTS = 12; // HTTP/2 & CDN multiplexing limit
+const LOOKAHEAD_PRIMARY = 35; // Lookahead buffer in active scroll direction
+const LOOKAHEAD_SECONDARY = 15; // Retention buffer in reverse direction
 
-const INTRO_STOP_INDEX = 125; // Stopped exactly at SILENCE, ENGINEERED presentation (Video 2 frame 21)
+const INTRO_STOP_INDEX = 63; // Stopped exactly at SILENCE, ENGINEERED presentation (Video 2 frame 21)
 const INTRO_DURATION_MS = 3800; // ~3.8s cinematic opening autoplay
 
 // Exact timeline ranges [start, fadeInEnd, fadeOutStart, end] mapped directly to footage frames:
@@ -627,9 +629,9 @@ export const FullscreenCinematic: React.FC = () => {
       }
     });
 
-    // 3. Preload initial small intro window (24 frames ahead for immediate smooth playback)
-    for (let i = 1; i <= 24; i++) {
-      requestFrame(i, 1000 - i * 25);
+    // 3. Preload initial intro window (50 frames ahead for immediate seamless playback)
+    for (let i = 1; i <= Math.min(50, TOTAL_FRAMES - 1); i++) {
+      requestFrame(i, 1000 - i * 15);
     }
 
     // 4. Register scroll listener with passive flag for silky 60fps scrolling
@@ -819,7 +821,7 @@ export const FullscreenCinematic: React.FC = () => {
         className="sr-only"
         aria-hidden="true"
       >
-        CH1 F001 • G1/1778
+        CH1 F001 • G1/893
       </span>
 
       {/* 5. Virtual Scroll Track (750vh) Driving the Single Timeline */}

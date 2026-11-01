@@ -44,20 +44,6 @@ export default defineConfig({
           }
           next();
         });
-      },
-      closeBundle() {
-        // Copy videos to dist/videos for production build
-        const distVideos = path.join(__dirname, 'dist', 'videos');
-        const srcVideos = path.join(__dirname, 'videos');
-        if (fs.existsSync(srcVideos)) {
-          if (!fs.existsSync(distVideos)) {
-            fs.mkdirSync(distVideos, { recursive: true });
-          }
-          const files = fs.readdirSync(srcVideos);
-          for (const file of files) {
-            fs.copyFileSync(path.join(srcVideos, file), path.join(distVideos, file));
-          }
-        }
       }
     }
   ],

@@ -8,5 +8,7 @@ dist-ssr
 # Test previews and duplicate clean frame scratchpads
 tasks/previews/
 videos_clean/
+videos/
 public/frames_clean/
 public/frames_raw/
+.frames_backup/
