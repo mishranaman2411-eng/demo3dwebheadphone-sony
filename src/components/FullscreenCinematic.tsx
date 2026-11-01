@@ -37,10 +37,10 @@ for (const clip of CLIPS_CONFIG) {
 }
 export const TOTAL_FRAMES = ALL_FRAMES.length; // 1,778
 
-const CACHE_LIMIT = 200; // Bounded LRU cache (~7.2MB max memory)
-const MAX_CONCURRENT_REQUESTS = 6; // Standard HTTP/2 browser connection pool limit
-const LOOKAHEAD_PRIMARY = 16; // Lookahead buffer in active scroll direction
-const LOOKAHEAD_SECONDARY = 6; // Safety retention buffer in reverse direction
+const CACHE_LIMIT = 600; // Expanded LRU cache to retain frames across sections without thrashing
+const MAX_CONCURRENT_REQUESTS = 10; // HTTP/2 & CDN connection multiplexing limit
+const LOOKAHEAD_PRIMARY = 30; // Lookahead buffer in active scroll direction
+const LOOKAHEAD_SECONDARY = 10; // Retention buffer in reverse direction
 
 const INTRO_STOP_INDEX = 125; // Stopped exactly at SILENCE, ENGINEERED presentation (Video 2 frame 21)
 const INTRO_DURATION_MS = 3800; // ~3.8s cinematic opening autoplay
@@ -191,11 +191,11 @@ export const FullscreenCinematic: React.FC = () => {
     lastDrawnImageRef.current = img;
   }, []);
 
-  // Sizing canvas to viewport device pixels with safe DPI clamping (1.75 max to avoid 4K GPU memory bloat)
+  // Sizing canvas to viewport device pixels with safe DPI clamping (1.25 max to eliminate GPU fill-rate lag)
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.25);
     const targetW = Math.round(window.innerWidth * dpr);
     const targetH = Math.round(window.innerHeight * dpr);
 
@@ -297,15 +297,11 @@ export const FullscreenCinematic: React.FC = () => {
             }
           }
 
-          // Reactive Display Check:
-          // If this frame just finished loading and is CLOSER to the current target than what's currently drawn,
-          // draw it immediately to eliminate scroll stutter over remote connections
+          // Monotonic Reactive Display Check:
+          // When a requested frame finishes loading, only render it if it matches the active target
+          // or immediate neighbor (<= 1). Never draw out-of-order distant frames to eliminate visual "glitter"/jitter.
           const currentTarget = currentTargetIndexRef.current;
-          const lastDrawn = lastDrawnIndexRef.current;
-          const currentDist = lastDrawn >= 0 ? Math.abs(currentTarget - lastDrawn) : 9999;
-          const newDist = Math.abs(currentTarget - idx);
-
-          if (newDist < currentDist && newDist <= 12) {
+          if (Math.abs(currentTarget - idx) <= 1 && lastDrawnIndexRef.current !== idx) {
             drawImageCover(img);
             lastDrawnIndexRef.current = idx;
             lastDrawnUrlRef.current = entry.url;
@@ -431,32 +427,36 @@ export const FullscreenCinematic: React.FC = () => {
           (window as any).__lastDrawnUrl = entry.url;
         }
       } else {
-        // Nearest-neighbor fallback: check nearest cached frames within ±15 to avoid blank screens
-        let fallbackImg: HTMLImageElement | null = null;
-        let fallbackIdx = -1;
-        for (let offset = 1; offset <= 15; offset++) {
-          const ahead = clamped + offset;
-          const behind = clamped - offset;
-          if (ahead < TOTAL_FRAMES && cache.has(ahead)) {
-            fallbackImg = cache.get(ahead)!;
-            fallbackIdx = ahead;
-            break;
+        // Fallback policy: Keep the existing clean frame on canvas to prevent jitter/glitter.
+        // Never jump between forward/backward neighbor frames during active scrolling.
+        // Only if canvas is completely blank (initial boot), search for the nearest neighbor.
+        if (lastDrawnIndexRef.current === -1) {
+          let fallbackImg: HTMLImageElement | null = null;
+          let fallbackIdx = -1;
+          for (let offset = 1; offset <= 20; offset++) {
+            const behind = clamped - offset;
+            const ahead = clamped + offset;
+            if (behind >= 0 && cache.has(behind)) {
+              fallbackImg = cache.get(behind)!;
+              fallbackIdx = behind;
+              break;
+            }
+            if (ahead < TOTAL_FRAMES && cache.has(ahead)) {
+              fallbackImg = cache.get(ahead)!;
+              fallbackIdx = ahead;
+              break;
+            }
           }
-          if (behind >= 0 && cache.has(behind)) {
-            fallbackImg = cache.get(behind)!;
-            fallbackIdx = behind;
-            break;
+
+          if (fallbackImg) {
+            drawImageCover(fallbackImg);
+            lastDrawnIndexRef.current = fallbackIdx;
+            lastDrawnUrlRef.current = ALL_FRAMES[fallbackIdx].url;
+            (window as any).__lastDrawnUrl = ALL_FRAMES[fallbackIdx].url;
           }
         }
 
-        if (fallbackImg && fallbackIdx !== lastDrawnIndexRef.current) {
-          drawImageCover(fallbackImg);
-          lastDrawnIndexRef.current = fallbackIdx;
-          lastDrawnUrlRef.current = ALL_FRAMES[fallbackIdx].url;
-          (window as any).__lastDrawnUrl = ALL_FRAMES[fallbackIdx].url;
-        }
-
-        // Enqueue target frame with urgent priority
+        // Enqueue target frame with top priority
         requestFrame(clamped, 10000);
       }
 
@@ -627,9 +627,9 @@ export const FullscreenCinematic: React.FC = () => {
       }
     });
 
-    // 3. Preload initial small intro window (only 12 frames ahead, never flooding the network!)
-    for (let i = 1; i <= 12; i++) {
-      requestFrame(i, 1000 - i * 30);
+    // 3. Preload initial small intro window (24 frames ahead for immediate smooth playback)
+    for (let i = 1; i <= 24; i++) {
+      requestFrame(i, 1000 - i * 25);
     }
 
     // 4. Register scroll listener with passive flag for silky 60fps scrolling
@@ -680,12 +680,12 @@ export const FullscreenCinematic: React.FC = () => {
           >
             {/* Centered Typography Container with Balanced Responsive Maximum Width */}
             <div className="relative w-full max-w-2xl sm:max-w-3xl md:max-w-4xl mx-auto flex flex-col items-center text-center space-y-4 sm:space-y-6">
-              {/* Soft Ambient Radial Scrim for Clean High-Contrast Legibility */}
+              {/* Soft Ambient Radial Scrim for Clean High-Contrast Legibility (GPU-optimized without blur filter) */}
               <div
-                className="absolute inset-0 -m-8 sm:-m-12 rounded-full filter blur-2xl opacity-90 -z-10 pointer-events-none"
+                className="absolute inset-0 -m-8 sm:-m-12 rounded-full -z-10 pointer-events-none"
                 style={{
                   background:
-                    'radial-gradient(circle, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.25) 55%, transparent 100%)',
+                    'radial-gradient(ellipse at center, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.5) 45%, transparent 75%)',
                 }}
                 aria-hidden="true"
               />
@@ -716,7 +716,7 @@ export const FullscreenCinematic: React.FC = () => {
         className="fixed inset-0 w-full h-[100svh] min-h-screen z-30 flex items-center justify-center p-6 sm:p-10 select-none transition-all duration-300"
         style={{ display: 'none', opacity: 0 }}
       >
-        <div className="relative w-full max-w-2xl bg-[#121214]/90 border border-white/10 rounded-3xl p-8 sm:p-10 backdrop-blur-xl shadow-2xl text-[#EDEDED] space-y-8">
+        <div className="relative w-full max-w-2xl bg-[#141416] border border-white/10 rounded-3xl p-8 sm:p-10 shadow-2xl text-[#EDEDED] space-y-8">
           {/* Header */}
           <div className="space-y-2 border-b border-white/[0.08] pb-6">
             <div className="flex items-center justify-between">
