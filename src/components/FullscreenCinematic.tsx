@@ -201,7 +201,11 @@ export const FullscreenCinematic: React.FC = () => {
     const targetW = Math.round(window.innerWidth * dpr);
     const targetH = Math.round(window.innerHeight * dpr);
 
-    if (canvas.width !== targetW || canvas.height !== targetH) {
+    // On mobile devices, ignore small address bar fluctuations (< 80px) to prevent resize glitch/flicker
+    const widthChanged = Math.abs(canvas.width - targetW) > 2;
+    const heightChanged = Math.abs(canvas.height - targetH) > (dpr * 80);
+
+    if (canvas.width === 0 || canvas.height === 0 || widthChanged || heightChanged) {
       canvas.width = targetW;
       canvas.height = targetH;
       if (lastDrawnImageRef.current) {
@@ -664,15 +668,15 @@ export const FullscreenCinematic: React.FC = () => {
     <div ref={containerRef} className="relative w-full bg-[#0B0B0C]">
       {/* 1. Fixed Fullscreen Canvas Layer */}
       {/* Renders the continuous 1,778 frame sequence without artificial heavy overlays or tints */}
-      <div className="fixed inset-0 w-full h-[100svh] min-h-screen overflow-hidden pointer-events-none z-0">
+      <div className="fixed inset-0 w-full h-[100dvh] min-h-screen overflow-hidden pointer-events-none z-0">
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 w-full h-full object-cover block will-change-transform bg-[#FAFAF9]"
+          className="absolute inset-0 w-full h-full object-cover block will-change-transform bg-[#0B0B0C]"
         />
       </div>
 
       {/* 2. Centered Cinematic Feature Typography Overlay */}
-      <div className="fixed inset-0 w-full h-[100svh] min-h-screen pointer-events-none z-20 flex items-center justify-center p-4 sm:p-8">
+      <div className="fixed inset-0 w-full h-[100dvh] min-h-screen pointer-events-none z-20 flex items-center justify-center p-4 sm:p-8">
         {HEADINGS_CONFIG.map((item, index) => (
           <div
             key={item.title}
@@ -698,7 +702,7 @@ export const FullscreenCinematic: React.FC = () => {
               </span>
 
               {/* Large, Bold, Premium Centered Heading */}
-              <h2 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold uppercase tracking-tight text-white leading-[1.08] text-balance [text-shadow:_0_2px_10px_rgba(0,0,0,0.95),_0_8px_32px_rgba(0,0,0,0.9),_0_16px_48px_rgba(0,0,0,0.85)]">
+              <h2 className="text-2xl sm:text-4xl md:text-5xl lg:text-7xl font-bold uppercase tracking-tight text-white leading-[1.08] text-balance [text-shadow:_0_2px_10px_rgba(0,0,0,0.95),_0_8px_32px_rgba(0,0,0,0.9),_0_16px_48px_rgba(0,0,0,0.85)]">
                 {item.title}
               </h2>
 
@@ -715,10 +719,10 @@ export const FullscreenCinematic: React.FC = () => {
       {/* Appears when Video 10 headphones ascend upward into the clean dark void (> 0.94 scroll) */}
       <div
         ref={outroRef}
-        className="fixed inset-0 w-full h-[100svh] min-h-screen z-30 flex items-center justify-center p-6 sm:p-10 select-none transition-all duration-300"
+        className="fixed inset-0 w-full h-[100dvh] min-h-screen z-30 flex items-center justify-center p-6 sm:p-10 select-none transition-all duration-300"
         style={{ display: 'none', opacity: 0 }}
       >
-        <div className="relative w-full max-w-2xl bg-[#141416] border border-white/10 rounded-3xl p-8 sm:p-10 shadow-2xl text-[#EDEDED] space-y-8">
+        <div className="relative w-full max-w-2xl bg-[#141416] border border-white/10 rounded-2xl sm:rounded-3xl p-5 sm:p-8 md:p-10 shadow-2xl text-[#EDEDED] space-y-4 sm:space-y-6 md:space-y-8 max-h-[92dvh] overflow-y-auto">
           {/* Header */}
           <div className="space-y-2 border-b border-white/[0.08] pb-6">
             <div className="flex items-center justify-between">
