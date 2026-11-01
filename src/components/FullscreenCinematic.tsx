@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { ShoppingBag, Check, ArrowUp } from 'lucide-react';
+import { ShoppingBag, Check, ArrowUp, Truck, RotateCcw, ShieldCheck, Battery, Bluetooth, Volume2, Feather } from 'lucide-react';
 
 // The verified seamless 8-clip video sequence (eliminating duplicate video 4 and duplicate video 9)
 // Total unique continuous frames: 1,778
@@ -102,10 +102,17 @@ export const HEADINGS_CONFIG = [
 ];
 
 const COLOR_OPTIONS = [
-  { name: 'White', color: '#ECEAE4', ring: 'ring-stone-300' },
-  { name: 'Black', color: '#1B1B1E', ring: 'ring-stone-700' },
-  { name: 'Blue', color: '#3A4D62', ring: 'ring-blue-400' },
-  { name: 'Beige', color: '#D4C4B3', ring: 'ring-amber-200' },
+  { name: 'White', color: '#ECEAE4' },
+  { name: 'Black', color: '#1B1B1E' },
+  { name: 'Blue', color: '#3A4D62' },
+  { name: 'Beige', color: '#D4C4B3' },
+];
+
+const PRODUCT_THUMBNAILS = [
+  { id: 0, label: 'Hero White', src: '/frames/video-1/frame_000105.webp' },
+  { id: 1, label: 'Angled Showcase', src: '/frames/video-10/frame_000001.webp' },
+  { id: 2, label: 'Cushion Craft', src: '/frames/video-7/frame_000121.webp' },
+  { id: 3, label: 'Acoustic Driver', src: '/frames/video-2/frame_000121.webp' },
 ];
 
 function calculateOpacity(
@@ -135,7 +142,9 @@ export const FullscreenCinematic: React.FC = () => {
 
   // Purchasing interactive state
   const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
-  const [isOrdered, setIsOrdered] = useState(false);
+  const [isAdded, setIsAdded] = useState(false);
+  const [isBought, setIsBought] = useState(false);
+  const [activeThumbIndex, setActiveThumbIndex] = useState(0);
 
   // High-performance image cache & request queue (zero React re-renders during active scrolling)
   const imageCacheRef = useRef<Map<number, HTMLImageElement>>(new Map());
@@ -666,9 +675,14 @@ export const FullscreenCinematic: React.FC = () => {
     };
   }, [cancelAutoplay, drawImageCover, fetchAndDecodeFrame, handleScroll, requestFrame, resizeCanvas, startIntroAutoplay]);
 
-  const handleOrder = () => {
-    setIsOrdered(true);
-    setTimeout(() => setIsOrdered(false), 3500);
+  const handleAddToCart = () => {
+    setIsAdded(true);
+    setTimeout(() => setIsAdded(false), 3000);
+  };
+
+  const handleBuyNow = () => {
+    setIsBought(true);
+    setTimeout(() => setIsBought(false), 3000);
   };
 
   const handleReplay = () => {
@@ -731,104 +745,198 @@ export const FullscreenCinematic: React.FC = () => {
       {/* Appears when Video 10 headphones ascend upward into the clean dark void (> 0.94 scroll) */}
       <div
         ref={outroRef}
-        className="fixed inset-0 w-full h-[100dvh] min-h-screen z-30 flex items-center justify-center p-6 sm:p-10 select-none transition-all duration-300"
+        className="fixed inset-0 w-full h-[100dvh] min-h-screen z-30 flex items-center justify-center p-3 sm:p-6 md:p-8 select-none transition-all duration-300 pointer-events-none"
         style={{ display: 'none', opacity: 0 }}
       >
-        <div className="relative w-full max-w-2xl bg-[#141416] border border-white/10 rounded-2xl sm:rounded-3xl p-5 sm:p-8 md:p-10 shadow-2xl text-[#EDEDED] space-y-4 sm:space-y-6 md:space-y-8 max-h-[92dvh] overflow-y-auto">
-          {/* Header */}
-          <div className="space-y-2 border-b border-white/[0.08] pb-6">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono uppercase tracking-[0.25em] text-[#A9C8FF]">
-                SONY ELECTRONICS • WH-CH520
-              </span>
-              <span className="text-xs font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                In Stock
-              </span>
-            </div>
-            <h2 className="text-3xl sm:text-4xl font-bold uppercase tracking-tight text-white">
-              Wireless Freedom. Studio Clarity.
-            </h2>
-            <p className="text-xs sm:text-sm text-white/60">
-              50-Hour Battery Life • DSEE™ Acoustic Upscaling • Multipoint Bluetooth® 5.2 • 147g Featherweight
-            </p>
-          </div>
-
-          {/* Color Selector */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-xs font-mono text-white/70">
-              <span className="uppercase tracking-wider">Finish</span>
-              <span className="text-white font-medium">{selectedColor.name}</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              {COLOR_OPTIONS.map((c) => (
-                <button
-                  key={c.name}
-                  type="button"
-                  onClick={() => setSelectedColor(c)}
-                  className={`relative w-8 h-8 rounded-full border border-white/20 transition-all ${
-                    selectedColor.name === c.name
-                      ? `ring-2 ring-offset-2 ring-offset-[#121214] ${c.ring} scale-110`
-                      : 'hover:scale-105 opacity-80 hover:opacity-100'
-                  }`}
-                  style={{ backgroundColor: c.color }}
-                  aria-label={`Select ${c.name} finish`}
+        {/* Horizontal Editorial Product Card (Two-Column Layout, Dark Grey Border, Subtle Shadows) */}
+        <div className="relative w-full max-w-4xl lg:max-w-5xl bg-[#121214] border border-neutral-800 rounded-2xl md:rounded-3xl p-5 sm:p-7 md:p-9 shadow-2xl shadow-black/95 text-white font-sans space-y-5 sm:space-y-6 max-h-[92dvh] overflow-y-auto">
+          
+          {/* Main 2-Column Horizontal Layout (Stacked on Mobile) */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 lg:gap-10 items-center">
+            
+            {/* Left Column: Large White Sony WH-CH520 Headphone + Thumbnails */}
+            <div className="md:col-span-6 flex flex-col space-y-3 sm:space-y-4">
+              {/* Large Main Showcase Box */}
+              <div className="relative w-full aspect-[4/3] rounded-xl sm:rounded-2xl bg-[#18181B] border border-neutral-800/80 p-5 sm:p-8 flex items-center justify-center overflow-hidden group">
+                <img
+                  src={PRODUCT_THUMBNAILS[activeThumbIndex].src}
+                  alt="Sony WH-CH520 White"
+                  className="w-full h-full object-contain filter drop-shadow-[0_20px_35px_rgba(0,0,0,0.9)] transition-transform duration-500 group-hover:scale-105"
                 />
-              ))}
+              </div>
+
+              {/* Small Product Thumbnails Underneath */}
+              <div className="flex items-center space-x-2.5 sm:space-x-3">
+                {PRODUCT_THUMBNAILS.map((thumb, idx) => (
+                  <button
+                    key={thumb.id}
+                    type="button"
+                    onClick={() => setActiveThumbIndex(idx)}
+                    className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-lg sm:rounded-xl bg-[#18181B] border overflow-hidden p-1 transition-all ${
+                      activeThumbIndex === idx
+                        ? 'border-white ring-1 ring-white'
+                        : 'border-neutral-800 hover:border-neutral-600 opacity-70 hover:opacity-100'
+                    }`}
+                    aria-label={`View ${thumb.label}`}
+                  >
+                    <img
+                      src={thumb.src}
+                      alt={thumb.label}
+                      className="w-full h-full object-contain"
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Right Column: Details, Bold Headline, Feature Badges, Color Selector, Price, Buttons */}
+            <div className="md:col-span-6 flex flex-col space-y-4 sm:space-y-5">
+              
+              {/* Product Name & Bold Uppercase Headline */}
+              <div className="space-y-1.5 sm:space-y-2">
+                <span className="text-[11px] sm:text-xs font-mono uppercase tracking-[0.25em] text-neutral-400 font-semibold block">
+                  SONY WH-CH520
+                </span>
+                <h2 className="text-2xl sm:text-3xl lg:text-4xl font-sans font-bold uppercase tracking-tight text-white leading-tight">
+                  WIRELESS FREEDOM. STUDIO CLARITY.
+                </h2>
+                <p className="text-xs sm:text-sm text-neutral-400 font-normal leading-relaxed font-sans">
+                  Crafted for all-day listening with 50-hour battery life, authentic DSEE™ audio upscaling, and multipoint Bluetooth® dual pairing.
+                </p>
+              </div>
+
+              {/* Compact Feature Badges (Strictly Neutral Grey/White) */}
+              <div className="grid grid-cols-2 gap-2 sm:gap-2.5">
+                <div className="flex items-center space-x-2 py-1.5 px-3 rounded-lg bg-neutral-900/90 border border-neutral-800 text-[11px] font-mono text-neutral-300">
+                  <Battery className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                  <span className="truncate">50-Hour Battery</span>
+                </div>
+                <div className="flex items-center space-x-2 py-1.5 px-3 rounded-lg bg-neutral-900/90 border border-neutral-800 text-[11px] font-mono text-neutral-300">
+                  <Volume2 className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                  <span className="truncate">DSEE™ Sound</span>
+                </div>
+                <div className="flex items-center space-x-2 py-1.5 px-3 rounded-lg bg-neutral-900/90 border border-neutral-800 text-[11px] font-mono text-neutral-300">
+                  <Bluetooth className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                  <span className="truncate">Multipoint BT 5.2</span>
+                </div>
+                <div className="flex items-center space-x-2 py-1.5 px-3 rounded-lg bg-neutral-900/90 border border-neutral-800 text-[11px] font-mono text-neutral-300">
+                  <Feather className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                  <span className="truncate">147g Featherweight</span>
+                </div>
+              </div>
+
+              {/* White Color Selector (Strictly Neutral Finishes) */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between text-xs font-mono text-neutral-400 uppercase tracking-wider">
+                  <span>Color Finish</span>
+                  <span className="text-white font-semibold">{selectedColor.name}</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  {COLOR_OPTIONS.map((c) => (
+                    <button
+                      key={c.name}
+                      type="button"
+                      onClick={() => setSelectedColor(c)}
+                      className={`relative w-7 h-7 sm:w-8 sm:h-8 rounded-full border transition-all ${
+                        selectedColor.name === c.name
+                          ? 'border-white ring-2 ring-white ring-offset-2 ring-offset-[#121214] scale-110'
+                          : 'border-neutral-700 hover:border-neutral-500 opacity-70 hover:opacity-100'
+                      }`}
+                      style={{ backgroundColor: c.color }}
+                      aria-label={`Select ${c.name} finish`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Price & Buying Buttons */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-baseline space-x-2">
+                  <span className="text-3xl sm:text-4xl font-bold font-mono tracking-tight text-white">
+                    $59.99
+                  </span>
+                  <span className="text-xs font-mono uppercase tracking-wider text-neutral-500">
+                    USD MSRP
+                  </span>
+                </div>
+
+                {/* Buttons: Stacked on mobile (full width), side-by-side on desktop */}
+                <div className="flex flex-col sm:flex-row gap-3 w-full">
+                  {/* White filled Add to Cart button with black text */}
+                  <button
+                    type="button"
+                    onClick={handleAddToCart}
+                    className="w-full sm:flex-1 py-3.5 px-6 rounded-full bg-white text-black font-sans font-bold text-xs uppercase tracking-wider hover:bg-neutral-200 transition-all active:scale-[0.99] flex items-center justify-center space-x-2 shadow-lg"
+                  >
+                    {isAdded ? (
+                      <>
+                        <Check className="w-4 h-4 text-black" />
+                        <span>Added to Cart</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingBag className="w-4 h-4 text-black" />
+                        <span>Add to Cart</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Black Buy Now button with thin white border */}
+                  <button
+                    type="button"
+                    onClick={handleBuyNow}
+                    className="w-full sm:flex-1 py-3.5 px-6 rounded-full bg-black text-white border border-white font-sans font-bold text-xs uppercase tracking-wider hover:bg-neutral-900 transition-all active:scale-[0.99] flex items-center justify-center space-x-2"
+                  >
+                    {isBought ? (
+                      <>
+                        <Check className="w-4 h-4 text-white" />
+                        <span>Order Placed</span>
+                      </>
+                    ) : (
+                      <span>Buy Now</span>
+                    )}
+                  </button>
+                </div>
+
+                {/* Replay Film Option */}
+                <div className="pt-1 flex justify-start">
+                  <button
+                    type="button"
+                    onClick={handleReplay}
+                    className="text-[11px] font-mono text-neutral-500 hover:text-neutral-300 transition-colors flex items-center space-x-1.5"
+                    title="Replay cinematic experience from start"
+                  >
+                    <ArrowUp className="w-3 h-3" />
+                    <span>Replay Film</span>
+                  </button>
+                </div>
+              </div>
+
             </div>
           </div>
 
-          {/* Pricing & Call to Action */}
-          <div className="pt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-t border-white/[0.08]">
-            <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-bold font-mono tracking-tight text-white">
-                $59.99
-              </span>
-              <span className="text-xs font-mono uppercase tracking-wider text-white/40">
-                USD MSRP
-              </span>
+          {/* Bottom Strip: Three compact benefits with small icons and dividers */}
+          <div className="pt-4 sm:pt-5 border-t border-neutral-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono text-neutral-400">
+            <div className="flex items-center space-x-2">
+              <Truck className="w-3.5 h-3.5 text-neutral-300 flex-shrink-0" />
+              <span>Free 2-Day Shipping</span>
             </div>
-
-            <div className="flex items-center space-x-3">
-              <button
-                type="button"
-                onClick={handleOrder}
-                className="flex-1 sm:flex-none flex items-center justify-center space-x-2 px-6 py-3 rounded-full bg-white text-black font-semibold hover:bg-neutral-200 transition-all active:scale-95 shadow-lg"
-              >
-                {isOrdered ? (
-                  <>
-                    <Check className="w-4 h-4 text-emerald-600" />
-                    <span>Added to Cart</span>
-                  </>
-                ) : (
-                  <>
-                    <ShoppingBag className="w-4 h-4" />
-                    <span>Order Now</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleReplay}
-                className="flex items-center justify-center space-x-1.5 px-4 py-3 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white/80 hover:text-white transition-all text-xs font-mono"
-                title="Replay cinematic experience from start"
-              >
-                <ArrowUp className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Replay Film</span>
-              </button>
+            <div className="hidden sm:block w-px h-3.5 bg-neutral-800" aria-hidden="true" />
+            <div className="flex items-center space-x-2">
+              <RotateCcw className="w-3.5 h-3.5 text-neutral-300 flex-shrink-0" />
+              <span>30-Day Returns</span>
+            </div>
+            <div className="hidden sm:block w-px h-3.5 bg-neutral-800" aria-hidden="true" />
+            <div className="flex items-center space-x-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-neutral-300 flex-shrink-0" />
+              <span>1-Year Sony Warranty</span>
             </div>
           </div>
 
-          {/* Guarantees */}
-          <div className="pt-2 flex items-center justify-between text-[11px] font-mono text-white/40 border-t border-white/[0.04]">
-            <span>Free 2-Day Shipping</span>
-            <span>•</span>
-            <span>30-Day Money-Back Guarantee</span>
-            <span>•</span>
-            <span>1-Year Sony Warranty</span>
-          </div>
         </div>
       </div>
+
+      
 
       {/* 4. Automated Verification Telemetry (Screen-reader only, 0 visual UI clutter) */}
       <span
